@@ -7,14 +7,13 @@ import "./App.css";
 
 // --- Firebase設定 ---
 const firebaseConfig = {
-  apiKey: "AIzaSyCKPgR0jrOxXH2wBEBdEg-oHC7mHPZD6DM",
-  authDomain: "fc-clubs-management.firebaseapp.com",
-  projectId: "fc-clubs-management",
-  storageBucket: "fc-clubs-management.firebasestorage.app",
-  messagingSenderId: "498521204900",
-  appId: "1:498521204900:web:1d27cbe0222468f82dde31"
+  apiKey: "AIzaSyDo5cjW-NLN2VvISK0y-95uTYSi3i5zBMM",
+  authDomain: "fcmanager-ff1fd.firebaseapp.com",
+  projectId: "fcmanager-ff1fd",
+  storageBucket: "fcmanager-ff1fd.firebasestorage.app",
+  messagingSenderId: "938142530767",
+  appId: "1:938142530767:web:6021b0456aac2a9a0f0bba"
 };
-
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
