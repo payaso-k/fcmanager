@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue, update } from "firebase/database";
+import { getDatabase, ref, onValue, set, remove, get, update } from "firebase/database";
 import { FORMATIONS } from "./formations";
 import html2canvas from "html2canvas";
 import "./App.css";
