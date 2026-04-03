@@ -495,7 +495,7 @@ function ClubApp({ teamId }) {
                 </div>
                 <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '6px' }}>
                   <button type="button" onClick={() => setBatchModalMemberId(m.id)} style={{ padding: '4px 10px', fontSize: '11px', background: 'var(--theme-accent2)', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', flexShrink: 0 }}>一括</button>
-                  <input type="text" className="personalMemoInput" placeholder="メモを入力..." key={`${m.id}-${selectedDateKey}`} defaultValue={(memosByDate[selectedDateKey] || {})[m.id] || ""} onBlur={(e) => { setMemosByDate(prev => ({ ...prev, [selectedDateKey]: { ...(prev[selectedDateKey] || {}), [m.id]: e.target.value } })); }} style={{ flex: 1 }} />
+                  <input type="text" className="personalMemoInput" placeholder="memo..." key={`${m.id}-${selectedDateKey}`} defaultValue={(memosByDate[selectedDateKey] || {})[m.id] || ""} onBlur={(e) => { setMemosByDate(prev => ({ ...prev, [selectedDateKey]: { ...(prev[selectedDateKey] || {}), [m.id]: e.target.value } })); }} style={{ flex: 1 }} />
                 </div>
               </div>
             ))}
@@ -514,7 +514,7 @@ function ClubApp({ teamId }) {
           </div>
         </div>
         <div className="section-pitch" style={{ flexDirection: 'column', alignItems: 'center' }}>
-          <div style={{ width: '95%', maxWidth: '600px', display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}><button className="exportBtn" onClick={handleExportImage} disabled={isExporting}>{isExporting ? "⏳ 処理中..." : "📸 画像として書き出す"}</button></div>
+          <div style={{ width: '95%', maxWidth: '600px', display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}><button className="exportBtn" onClick={handleExportImage} disabled={isExporting}>{isExporting ? "⏳ 処理中..." : "書き出す"}</button></div>
           <div className="pitchWrap" id="pitch-export-area">
             <div className="pitch" style={pitchStyle}>
               <div className="lineLayer">
