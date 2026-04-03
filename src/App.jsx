@@ -6,7 +6,7 @@ import html2canvas from "html2canvas";
 import "./App.css";
 
 // ------------------------------------------
-// ★ここに「新しく作ったSaaS専用の鍵」を貼り付けてください！
+// ★Firebaseの設定キー
 // ------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyDo5cjW-NLN2VvISK0y-95uTYSi3i5zBMM",
@@ -35,8 +35,6 @@ const INITIAL_MEMBERS = Array.from({ length: 20 }, (_, i) => ({
   label: `選手 ${i + 1}`,
 }));
 
-const ADMIN_CODE_DEFAULT = "1234";
-
 const DEFAULT_COLORS = {
   main: "#2c3e50",    
   accent1: "#3498db", 
@@ -46,14 +44,19 @@ const DEFAULT_COLORS = {
 };
 
 // ==========================================
-// ★ガードマン機能（アプリの入り口）
+// ★ガードマン機能（ログイン画面と権限の振り分け）
 // ==========================================
 export default function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const TEAM_ID = urlParams.get('id'); 
 
-  const [isVip, setIsVip] = useState(false);
+  const [isValidTeam, setIsValidTeam] = useState(false);
+  const [teamPasswords, setTeamPasswords] = useState({ adminPass: "1234", entryPass: "0000" });
   const [statusMsg, setStatusMsg] = useState("認証中...");
+
+  // localStorageから前回のログイン状態（権限）を取得
+  const [authRole, setAuthRole] = useState(() => localStorage.getItem(`role_${TEAM_ID}`) || null);
+  const [inputPass, setInputPass] = useState("");
 
   useEffect(() => {
     if (!TEAM_ID) {
@@ -63,16 +66,48 @@ export default function App() {
 
     const vipRef = ref(db, `allowedTeams/${TEAM_ID}`);
     onValue(vipRef, (snapshot) => {
-      // データベースの値が「true（ブール値）」でも「"true"（文字列）」でも通るように少し優しくしました
-      if (snapshot.exists() && String(snapshot.val()) === "true") {
-        setIsVip(true); 
+      if (snapshot.exists()) {
+        setIsValidTeam(true);
+        const data = snapshot.val();
+        
+        // マスターアプリから登録されたパスワード情報があればセットする
+        if (typeof data === 'object') {
+          setTeamPasswords({
+            adminPass: data.adminPass || "1234",
+            entryPass: data.entryPass || "0000"
+          });
+        } else {
+          // 古い仕組み（trueだけ）で登録されたチームの互換性対応
+          setTeamPasswords({ adminPass: "1234", entryPass: "0000" });
+        }
       } else {
+        setIsValidTeam(false);
         setStatusMsg("このクラブはまだ登録されていません。\n管理者に正しいURLをご確認ください。");
       }
     });
   }, [TEAM_ID]);
 
-  if (!isVip) {
+  // ログインボタンを押したときの処理
+  const handleLogin = (e) => {
+    e.preventDefault();
+    const MASTER_PASSWORD = "5963"; // 柏木さん専用マスターパスワード
+
+    if (inputPass === MASTER_PASSWORD) {
+      localStorage.setItem(`role_${TEAM_ID}`, 'master');
+      setAuthRole('master');
+    } else if (inputPass === teamPasswords.adminPass) {
+      localStorage.setItem(`role_${TEAM_ID}`, 'admin'); // 代表者
+      setAuthRole('admin');
+    } else if (inputPass === teamPasswords.entryPass) {
+      localStorage.setItem(`role_${TEAM_ID}`, 'member'); // 選手
+      setAuthRole('member');
+    } else {
+      alert("パスワードが違います！");
+    }
+  };
+
+  // チームが存在しない場合のエラー画面
+  if (!isValidTeam) {
     return (
       <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f9fa', color: '#2c3e50', textAlign: 'center', padding: '20px', lineHeight: '1.6' }}>
         <div style={{ background: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxWidth: '400px' }}>
@@ -83,16 +118,44 @@ export default function App() {
     );
   }
 
-  return <ClubApp teamId={TEAM_ID} />;
+  // チームは存在するが、まだログインしていない場合（ログイン画面）
+  if (!authRole) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f9fa', color: '#2c3e50', textAlign: 'center', padding: '20px' }}>
+        <div style={{ background: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', width: '100%', maxWidth: '320px' }}>
+          <h2 style={{ color: '#2c3e50', marginTop: 0, marginBottom: '20px', fontSize: '20px' }}>FC MANAGER</h2>
+          <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '20px' }}>パスワードを入力して入室してください</p>
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            <input
+              type="password"
+              placeholder="パスワード"
+              value={inputPass}
+              onChange={(e) => setInputPass(e.target.value)}
+              style={{ padding: '12px', fontSize: '16px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none', textAlign: 'center', letterSpacing: '2px' }}
+            />
+            <button type="submit" style={{ padding: '12px', backgroundColor: '#3498db', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer' }}>
+              入室する
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // ログイン成功したら、アプリ本体に権限（Role）を渡して表示
+  return <ClubApp teamId={TEAM_ID} userRole={authRole} setAuthRole={setAuthRole} teamPasswords={teamPasswords} />;
 }
 
 // ==========================================
 // アプリ本体
 // ==========================================
-function ClubApp({ teamId }) {
+function ClubApp({ teamId, userRole, setAuthRole, teamPasswords }) {
   const DB_PATH = `teamsData_${teamId}/`; 
 
-  // 万が一formations.jsが読み込めなかった時の安全対策
+  // 権限の判定
+  const isAdmin = userRole === 'admin';
+  const isMaster = userRole === 'master';
+
   const keys = FORMATIONS ? Object.keys(FORMATIONS) : ["3-4-2-1"];
   
   const [membersList, setMembersList] = useState(INITIAL_MEMBERS);
@@ -108,10 +171,10 @@ function ClubApp({ teamId }) {
   const [themeBg, setThemeBg] = useState(DEFAULT_COLORS.bg);
   const [themePageBg, setThemePageBg] = useState(DEFAULT_COLORS.pageBg); 
   
-  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem(`role_${teamId}`) === 'admin');
-  const [isMaster, setIsMaster] = useState(() => localStorage.getItem(`role_${teamId}`) === 'master');
-  
-  const [adminCode, setAdminCode] = useState(ADMIN_CODE_DEFAULT);
+  // パスワード変更用のステート
+  const [newAdminPass, setNewAdminPass] = useState(teamPasswords.adminPass);
+  const [newEntryPass, setNewEntryPass] = useState(teamPasswords.entryPass);
+
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [names, setNames] = useState({});
   const [monthDate, setMonthDate] = useState(() => new Date());
@@ -143,6 +206,12 @@ function ClubApp({ teamId }) {
     return days;
   }, [selectedDateKey]);
 
+  // Firebaseからパスワードが更新されたら入力欄も同期する
+  useEffect(() => {
+    setNewAdminPass(teamPasswords.adminPass);
+    setNewEntryPass(teamPasswords.entryPass);
+  }, [teamPasswords]);
+
   useEffect(() => {
     const dbRef = ref(db, DB_PATH);
     const unsubscribe = onValue(dbRef, (snapshot) => {
@@ -156,13 +225,7 @@ function ClubApp({ teamId }) {
         if (data.statusByDate) setStatusByDate(data.statusByDate);
         if (data.memosByDate) setMemosByDate(data.memosByDate);
         if (data.placedBySlotByDate) setPlacedBySlotByDate(data.placedBySlotByDate);
-        if (data.adminCode) setAdminCode(data.adminCode);
-        
-        // 配列かどうかの安全チェックを追加
-        if (data.membersList && Array.isArray(data.membersList)) {
-          setMembersList(data.membersList);
-        }
-        
+        if (data.membersList && Array.isArray(data.membersList)) setMembersList(data.membersList);
         if (data.generalMemosByDate) setGeneralMemosByDate(data.generalMemosByDate);
         if (data.memberImages) setMemberImages(data.memberImages);
         if (data.themeMain) setThemeMain(data.themeMain);
@@ -180,18 +243,17 @@ function ClubApp({ teamId }) {
     document.title = `${teamName} | 出欠・フォーメーション`;
   }, [teamName]);
 
-  // ★修正：空っぽのデータを送信してFirebaseがパニックになるのを防ぐ安全装置を追加
+  // データ保存処理
   useEffect(() => {
     if (!isLoaded) return;
     const timerId = setTimeout(() => {
       const dbRef = ref(db, DB_PATH);
       
       const payload = {
-        teamName, defaultFormation, adminCode, membersList,
+        teamName, defaultFormation, membersList,
         themeMain, themeAccent1, themeAccent2, themeBg, themePageBg
       };
 
-      // 中身が空っぽじゃない時だけ保存するルール
       if (Object.keys(names).length > 0) payload.names = names;
       if (Object.keys(formationByDate).length > 0) payload.formationByDate = formationByDate;
       if (Object.keys(statusByDate).length > 0) payload.statusByDate = statusByDate;
@@ -203,13 +265,13 @@ function ClubApp({ teamId }) {
     }, 1000);
     
     return () => clearTimeout(timerId);
-  }, [teamName, names, formationByDate, defaultFormation, statusByDate, memosByDate, placedBySlotByDate, adminCode, membersList, generalMemosByDate, themeMain, themeAccent1, themeAccent2, themeBg, themePageBg, isLoaded, DB_PATH]);
+  }, [teamName, names, formationByDate, defaultFormation, statusByDate, memosByDate, placedBySlotByDate, membersList, generalMemosByDate, themeMain, themeAccent1, themeAccent2, themeBg, themePageBg, isLoaded, DB_PATH]);
 
   useEffect(() => {
     document.body.style.backgroundColor = themePageBg;
   }, [themePageBg]);
 
-  // 以降の機能（画像保存、ドラッグ＆ドロップなど）は今までと全く同じです
+  // --- 各種ハンドラー関数 ---
   const handleLogoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -219,17 +281,13 @@ function ClubApp({ teamId }) {
       img.onload = () => {
         const canvas = document.createElement("canvas");
         const MAX_SIZE = 300;
-        let width = img.width;
-        let height = img.height;
+        let width = img.width; let height = img.height;
         if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
         else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext("2d"); ctx.drawImage(img, 0, 0, width, height);
         const dataUrl = canvas.toDataURL("image/png");
-        setLogoDataUrl(dataUrl);
-        update(ref(db, DB_PATH), { logoDataUrl: dataUrl });
+        setLogoDataUrl(dataUrl); update(ref(db, DB_PATH), { logoDataUrl: dataUrl });
       };
       img.src = ev.target.result;
     };
@@ -311,7 +369,7 @@ function ClubApp({ teamId }) {
     backgroundImage: `linear-gradient(to bottom, #2f4f2f 0%, #2f4f2f 10%, #3a633a 10%, #3a633a 20%, #2f4f2f 20%, #2f4f2f 30%, #3a633a 30%, #3a633a 40%, #2f4f2f 40%, #2f4f2f 50%, #3a633a 50%, #3a633a 60%, #2f4f2f 60%, #2f4f2f 70%, #3a633a 70%, #3a633a 80%, #2f4f2f 80%, #2f4f2f 90%, #3a633a 90%, #3a633a 100%)`
   };
 
-  // --- HTML（見た目） ---
+  // --- 画面コンポーネント ---
   function WeeklySummary({ currentKey, statusByDate, onSelectDate, membersCount }) {
     if (!currentKey) return null;
     const targetDate = new Date(currentKey);
@@ -321,19 +379,12 @@ function ClubApp({ teamId }) {
   
     const weekData = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
+      const d = new Date(monday); d.setDate(monday.getDate() + i);
       const key = toKey(d);
-      
       const dayStatuses = statusByDate[key] || {};
       let ok = 0, maybe = 0, no = 0;
-      Object.values(dayStatuses).forEach(val => {
-        if (val === "ok") ok++;
-        if (val === "maybe") maybe++;
-        if (val === "no") no++;
-      });
+      Object.values(dayStatuses).forEach(val => { if (val === "ok") ok++; if (val === "maybe") maybe++; if (val === "no") no++; });
       const unknown = Math.max(0, membersCount - (ok + maybe + no));
-  
       weekData.push({ date: d, key, ok, maybe, no, unknown });
     }
   
@@ -417,17 +468,15 @@ function ClubApp({ teamId }) {
         </div>
         <div className="controls">
           <button className="btn" type="button" onClick={() => {
-            if (isAdmin || isMaster) { setIsAdmin(false); setIsMaster(false); localStorage.removeItem(`role_${teamId}`); }
-            else {
-              const code = window.prompt("管理者コードを入力してください");
-              if (code === "5963") { setIsMaster(true); localStorage.setItem(`role_${teamId}`, 'master'); alert("マスターログイン成功"); }
-              else if (code === adminCode) { setIsAdmin(true); localStorage.setItem(`role_${teamId}`, 'admin'); alert("ログイン成功"); }
-              else { alert("コードが違います"); }
+            if (window.confirm("ログアウトしてログイン画面に戻りますか？")) {
+              localStorage.removeItem(`role_${teamId}`);
+              setAuthRole(null);
             }
-          }}>{(isAdmin || isMaster) ? "ログアウト" : "管理者"}</button>
+          }}>ログアウト</button>
         </div>
       </header>
 
+      {/* 管理者・マスターのみ表示される設定エリア */}
       {(isAdmin || isMaster) && (
         <div className="adminPanelMobile">
           <div className="adminField"><label className="adminLabel">チーム名設定</label><input className="textInput" value={teamName} onChange={(e) => setTeamName(e.target.value)} /></div>
@@ -443,7 +492,34 @@ function ClubApp({ teamId }) {
             </div>
           </div>
           <div className="adminField"><label className="adminLabel">初期フォーメーション</label><select className="select" value={defaultFormation} onChange={(e) => setDefaultFormation(e.target.value)}>{keys.map(k => <option key={k} value={k}>{k}</option>)}</select></div>
-          <div className="adminField"><label className="adminLabel" style={{ color: 'var(--theme-accent1)' }}>管理者パスコード変更</label><input className="textInput" type="text" value={adminCode} onChange={(e) => setAdminCode(e.target.value)} style={{ borderColor: 'var(--theme-accent1)' }} /></div>
+          
+          {/* ★追加：パスワード管理エリア */}
+          <div className="adminField">
+            <label className="adminLabel" style={{ color: 'var(--theme-accent1)' }}>🔑 パスワード管理</label>
+            <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', marginTop: '5px' }}>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 'bold' }}>【代表者用】管理パスコード</div>
+                <input className="textInput" type="text" value={newAdminPass} onChange={(e) => setNewAdminPass(e.target.value)} style={{ borderColor: 'var(--theme-accent1)' }} />
+              </div>
+              <div style={{ marginBottom: '15px' }}>
+                <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px', fontWeight: 'bold' }}>【選手用】入室パスワード</div>
+                <input className="textInput" type="text" value={newEntryPass} onChange={(e) => setNewEntryPass(e.target.value)} />
+              </div>
+              <button
+                onClick={() => {
+                  if (!newAdminPass || !newEntryPass) return alert("パスワードを入力してください");
+                  update(ref(db, `allowedTeams/${teamId}`), {
+                    adminPass: newAdminPass,
+                    entryPass: newEntryPass
+                  }).then(() => alert("パスワードを更新しました！\n次回のログインから新しいパスワードが必要になります。"));
+                }}
+                style={{ padding: '10px 15px', background: 'var(--theme-accent1)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', width: '100%', fontWeight: 'bold' }}
+              >
+                パスワードを変更する
+              </button>
+            </div>
+          </div>
+
           <div className="adminField" style={{ marginTop: '10px' }}>
             <label className="adminLabel">メンバーアイコン画像設定</label>
             <div style={{ padding: '10px', background: '#fff', borderRadius: '8px', border: '1px solid #ddd' }}>
