@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { initializeApp } from "firebase/app";
-// ★修正：データベースの一部だけを更新する「update」機能を追加
 import { getDatabase, ref, set, onValue, update } from "firebase/database";
 import { FORMATIONS } from "./formations";
 import html2canvas from "html2canvas";
@@ -44,126 +43,63 @@ const DEFAULT_COLORS = {
   pageBg: "#f2eee2"   
 };
 
-// --- Sub Components ---
-function WeeklySummary({ currentKey, statusByDate, onSelectDate, membersCount }) {
-  if (!currentKey) return null;
+// ==========================================
+// ★ガードマン機能（アプリの入り口）
+// ==========================================
+export default function App() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const TEAM_ID = urlParams.get('id'); // URLの ?id=〇〇 を取得
 
-  const targetDate = new Date(currentKey);
-  const day = targetDate.getDay(); 
-  const diff = targetDate.getDate() - (day === 0 ? 6 : day - 1);
-  const monday = new Date(targetDate.setDate(diff));
+  const [isVip, setIsVip] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("認証中...");
 
-  const weekData = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    const key = toKey(d);
-    
-    const dayStatuses = statusByDate[key] || {};
-    let ok = 0, maybe = 0, no = 0;
-    Object.values(dayStatuses).forEach(val => {
-      if (val === "ok") ok++;
-      if (val === "maybe") maybe++;
-      if (val === "no") no++;
+  useEffect(() => {
+    // ① URLに ?id= が無い場合は弾く
+    if (!TEAM_ID) {
+      setStatusMsg("URLが正しくありません。\n「?id=クラブ名」が必要です。");
+      return;
+    }
+
+    // ② FirebaseのVIPリスト（allowedTeams）に載っているか確認する
+    const vipRef = ref(db, `allowedTeams/${TEAM_ID}`);
+    onValue(vipRef, (snapshot) => {
+      if (snapshot.exists() && snapshot.val() === true) {
+        setIsVip(true); // VIPリストにあったら入室許可
+      } else {
+        setStatusMsg("このクラブは登録されていません。\n管理者に正しいURLをご確認ください。");
+      }
     });
-    const unknown = Math.max(0, membersCount - (ok + maybe + no));
+  }, [TEAM_ID]);
 
-    weekData.push({ date: d, key, ok, maybe, no, unknown });
+  // 入室拒否の場合のエラー画面
+  if (!isVip) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f2eee2', color: '#3e3226', textAlign: 'center', padding: '20px', lineHeight: '1.6' }}>
+        <div style={{ background: 'white', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+          <h2 style={{ color: '#9a2c2e', marginTop: 0 }}>アクセスエラー</h2>
+          <div style={{ whiteSpace: 'pre-wrap', fontWeight: 'bold' }}>{statusMsg}</div>
+        </div>
+      </div>
+    );
   }
 
-  const WEEKS = ["月", "火", "水", "木", "金", "土", "日"];
-
-  return (
-    <div className="summaryCard">
-      <div className="summaryTitle">
-        週間集計 ({toKey(monday).slice(5).replace('-', '/')} 〜)
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-        {weekData.map((item, idx) => {
-          const isSelected = item.key === currentKey;
-          const isSat = idx === 5;
-          const isSun = idx === 6;
-          return (
-            <div 
-              key={item.key} 
-              onClick={() => onSelectDate(item.key)}
-              className={`summaryDay ${isSelected ? 'selected' : ''}`}
-            >
-              <div style={{ fontWeight: 'bold', color: isSun ? 'var(--theme-accent1)' : isSat ? 'var(--theme-accent2)' : 'var(--theme-main)' }}>
-                {WEEKS[idx]} <span style={{ fontSize: '9px', fontWeight: 'normal', opacity: 0.7 }}>{item.date.getDate()}</span>
-              </div>
-              <div style={{ marginTop: '4px', lineHeight: '1.2' }}>
-                <div style={{ color: 'var(--theme-accent1)' }}>○ {item.ok}</div>
-                <div style={{ color: 'var(--theme-accent2)' }}>△ {item.maybe}</div>
-                <div style={{ color: 'var(--theme-main)' }}>× {item.no}</div>
-                <div style={{ color: 'var(--theme-main)', opacity: 0.5 }}>- {item.unknown}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+  // 入室許可が出たら、実際のアプリ画面（ClubApp）を表示する
+  return <ClubApp teamId={TEAM_ID} />;
 }
 
-function Calendar({ monthDate, selectedKey, onSelectDate, onPrev, onNext, generalMemosByDate = {} }) {
-  const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-  const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
-  const startDow = (start.getDay() + 6) % 7; 
-  const daysInMonth = end.getDate();
-  
-  const cells = [];
-  for (let i = 0; i < startDow; i++) cells.push(null);
-  for (let day = 1; day <= daysInMonth; day++) cells.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), day));
-  while (cells.length % 7 !== 0) cells.push(null);
 
-  const DAYS = ["月", "火", "水", "木", "金", "土", "日"];
+// ==========================================
+// ここから下は今までのアプリの機能（チームごとに分離対応済み）
+// ==========================================
+function ClubApp({ teamId }) {
+  const DB_PATH = `teamsData_${teamId}/`; // ★チームごとに保存先を分ける魔法
 
-  return (
-    <div className="calendarCard">
-      <div className="calendarHeader">
-        <button className="navBtn" onClick={onPrev} type="button">‹</button>
-        <div className="calendarTitle">{toKey(monthDate).substring(0, 7)}</div>
-        <button className="navBtn" onClick={onNext} type="button">›</button>
-      </div>
-      <div className="weekRow">
-        {DAYS.map(d => <div key={d} className={`weekDay ${d === "日" ? "sunday" : d === "土" ? "saturday" : ""}`}>{d}</div>)}
-      </div>
-      <div className="calendarGrid">
-        {cells.map((d, idx) => {
-          if (!d) return <div key={idx} className="dayCell empty" />;
-          const key = toKey(d);
-          const isToday = key === toKey(new Date());
-          const isSelected = key === selectedKey;
-          const hasMemo = generalMemosByDate[key] && generalMemosByDate[key].trim() !== "";
-
-          return (
-            <button
-              key={key}
-              type="button"
-              className={`dayCell ${isSelected ? "selected" : ""} ${isToday ? "today" : ""}`}
-              onClick={() => onSelectDate(key)}
-            >
-              {d.getDate()}
-              {hasMemo && <div className="memo-dot" />}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// --- Main Component ---
-export default function App() {
   const keys = Object.keys(FORMATIONS);
-  
   const [membersList, setMembersList] = useState(INITIAL_MEMBERS);
   const [formationByDate, setFormationByDate] = useState({});
   const [defaultFormation, setDefaultFormation] = useState(keys[0] || "3-4-2-1");
   const [teamName, setTeamName] = useState("TEAM NAME");
   const [logoDataUrl, setLogoDataUrl] = useState("");
-  
   const [memberImages, setMemberImages] = useState({});
 
   const [themeMain, setThemeMain] = useState(DEFAULT_COLORS.main);
@@ -172,8 +108,9 @@ export default function App() {
   const [themeBg, setThemeBg] = useState(DEFAULT_COLORS.bg);
   const [themePageBg, setThemePageBg] = useState(DEFAULT_COLORS.pageBg); 
   
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isMaster, setIsMaster] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem(`role_${teamId}`) === 'admin');
+  const [isMaster, setIsMaster] = useState(() => localStorage.getItem(`role_${teamId}`) === 'master');
+  
   const [adminCode, setAdminCode] = useState(ADMIN_CODE_DEFAULT);
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [names, setNames] = useState({});
@@ -208,7 +145,7 @@ export default function App() {
   }, [selectedDateKey]);
 
   useEffect(() => {
-    const dbRef = ref(db, 'teamData/');
+    const dbRef = ref(db, DB_PATH);
     const unsubscribe = onValue(dbRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -234,24 +171,19 @@ export default function App() {
       setIsLoaded(true);
     });
     return () => unsubscribe();
-  }, []);
+  }, [DB_PATH]);
 
-  // ★修正：テキストデータと画像データの保存ルートを分離
   useEffect(() => {
     if (!isLoaded) return;
-    
     const timerId = setTimeout(() => {
-      const dbRef = ref(db, 'teamData/');
-      // ★画像データ（memberImages, logoDataUrl）はここから除外しました
+      const dbRef = ref(db, DB_PATH);
       update(dbRef, {
         teamName, names, formationByDate, defaultFormation, statusByDate, memosByDate, placedBySlotByDate, adminCode, membersList, generalMemosByDate,
         themeMain, themeAccent1, themeAccent2, themeBg, themePageBg
       });
     }, 1000);
-
     return () => clearTimeout(timerId);
-  // ★依存配列からも画像を外して、文字入力時に写真データを触らないようにしました
-  }, [teamName, names, formationByDate, defaultFormation, statusByDate, memosByDate, placedBySlotByDate, adminCode, membersList, generalMemosByDate, themeMain, themeAccent1, themeAccent2, themeBg, themePageBg, isLoaded]);
+  }, [teamName, names, formationByDate, defaultFormation, statusByDate, memosByDate, placedBySlotByDate, adminCode, membersList, generalMemosByDate, themeMain, themeAccent1, themeAccent2, themeBg, themePageBg, isLoaded, DB_PATH]);
 
   useEffect(() => {
     document.body.style.backgroundColor = themePageBg;
@@ -282,8 +214,7 @@ export default function App() {
         const dataUrl = canvas.toDataURL("image/png");
         
         setLogoDataUrl(dataUrl);
-        // ★ロゴ画像を変更した時だけ、単独でピンポイント保存
-        update(ref(db, 'teamData'), { logoDataUrl: dataUrl });
+        update(ref(db, DB_PATH), { logoDataUrl: dataUrl });
       };
       img.src = ev.target.result;
     };
@@ -338,8 +269,7 @@ export default function App() {
         delete next[id];
         return next;
       });
-      // ★メンバー削除時、その人の画像データも単独で綺麗に削除
-      update(ref(db, 'teamData/memberImages'), { [id]: null });
+      update(ref(db, `${DB_PATH}memberImages`), { [id]: null });
     }
   };
 
@@ -409,11 +339,23 @@ export default function App() {
         </div>
         <div className="controls">
           <button className="btn" type="button" onClick={() => {
-            if (isAdmin || isMaster) { setIsAdmin(false); setIsMaster(false); }
+            if (isAdmin || isMaster) { 
+              setIsAdmin(false); 
+              setIsMaster(false); 
+              localStorage.removeItem(`role_${teamId}`); 
+            }
             else {
               const code = window.prompt("ENTER CODE");
-              if (code === "5963") { setIsMaster(true); alert("マスター権限"); }
-              else if (code === adminCode) { setIsAdmin(true); alert("管理者権限"); }
+              if (code === "5963") { 
+                setIsMaster(true); 
+                localStorage.setItem(`role_${teamId}`, 'master'); 
+                alert("マスターログイン成功！次回から入力は不要です。"); 
+              }
+              else if (code === adminCode) { 
+                setIsAdmin(true); 
+                localStorage.setItem(`role_${teamId}`, 'admin'); 
+                alert("ログイン成功！次回から入力は不要です。"); 
+              }
               else { alert("コードが違います"); }
             }
           }}>{(isAdmin || isMaster) ? "ログアウト" : "管理者"}</button>
@@ -513,8 +455,7 @@ export default function App() {
                         const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
                         setMemberImages(prev => ({ ...prev, [m.id]: dataUrl }));
                         
-                        // ★画像を登録した瞬間に、その人の画像データだけを単独でピンポイント保存
-                        update(ref(db, 'teamData/memberImages'), { [m.id]: dataUrl });
+                        update(ref(db, `${DB_PATH}memberImages`), { [m.id]: dataUrl });
                       };
                       img.src = ev.target.result;
                     };
@@ -529,8 +470,7 @@ export default function App() {
                     <button type="button" onClick={() => {
                       if(window.confirm('この画像を削除しますか？')) {
                         setMemberImages(prev => { const n = {...prev}; delete n[m.id]; return n; });
-                        // ★画像を削除した瞬間に、その人の画像データだけを単独で削除
-                        update(ref(db, 'teamData/memberImages'), { [m.id]: null });
+                        update(ref(db, `${DB_PATH}memberImages`), { [m.id]: null });
                       }
                     }} style={{ background: 'var(--theme-main)', color: '#fff', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', flexShrink: 0 }}>
                       削除
@@ -585,7 +525,6 @@ export default function App() {
             {membersList.map(m => (
               <div key={m.id} className="listRowCompact" style={{ flexDirection: 'column', gap: '8px' }}>
                 
-                {/* 1段目: 名前と出欠ボタン */}
                 <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: '4px' }}>
                   {(isAdmin || isMaster) && (
                     <button type="button" className="deleteBtn" onClick={() => handleDeleteMember(m.id)} style={{ margin: 0 }}>×</button>
@@ -612,7 +551,6 @@ export default function App() {
                   </div>
                 </div>
                 
-                {/* 2段目: 一括ボタンとメモ欄 */}
                 <div style={{ display: 'flex', width: '100%', alignItems: 'center', gap: '6px' }}>
                   <button
                     type="button"
@@ -627,7 +565,7 @@ export default function App() {
                   <input
                     type="text"
                     className="personalMemoInput"
-                    placeholder="memo..."
+                    placeholder="メモを入力..."
                     key={`${m.id}-${selectedDateKey}`}
                     defaultValue={(memosByDate[selectedDateKey] || {})[m.id] || ""}
                     onBlur={(e) => {
@@ -666,7 +604,7 @@ export default function App() {
         <div className="section-pitch" style={{ flexDirection: 'column', alignItems: 'center' }}>
           <div style={{ width: '95%', maxWidth: '600px', display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
             <button className="exportBtn" onClick={handleExportImage} disabled={isExporting}>
-              {isExporting ? "⏳ 処理中..." : "書き出す"}
+              {isExporting ? "⏳ 処理中..." : "📸 画像として書き出す"}
             </button>
           </div>
 
@@ -729,8 +667,8 @@ export default function App() {
                           fontWeight: 'bold',
                           borderRadius: '10px',
                           boxShadow: '0 3px 6px rgba(0,0,0,0.6)',
-                          background: 'rgba(0, 0, 0, 0.4)',
-                          backdropFilter: 'blur(2px)',
+                          background: 'rgba(0, 0, 0, 0.65)',
+                          backdropFilter: 'blur(4px)',
                           WebkitBackdropFilter: 'blur(4px)',
                           border: `1px solid ${st === 'ok' ? 'var(--theme-accent1)' : st === 'maybe' ? 'var(--theme-accent2)' : 'rgba(255,255,255,0.4)'}`,
                           color: '#ffffff',
@@ -841,3 +779,4 @@ export default function App() {
     </div>
   );
 }
+// ------------------------------------------
