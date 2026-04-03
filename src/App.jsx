@@ -6,7 +6,7 @@ import html2canvas from "html2canvas";
 import "./App.css";
 
 // ------------------------------------------
-// ★Firebase設定キー
+// Firebase設定キー
 // ------------------------------------------
 const firebaseConfig = {
   apiKey: "AIzaSyDo5cjW-NLN2VvISK0y-95uTYSi3i5zBMM",
@@ -56,11 +56,9 @@ export default function App() {
   const [isVip, setIsVip] = useState(false);
   const [statusMsg, setStatusMsg] = useState("認証中...");
   
-  // 端末の記憶（localStorage）をチェック
   const [isAuth, setIsAuth] = useState(() => localStorage.getItem(`auth_${TEAM_ID}`) === "true");
   const [inputPass, setInputPass] = useState("");
   
-  // Firebaseから取得する合言葉の正解データ
   const [dbAdminCode, setDbAdminCode] = useState(ADMIN_CODE_DEFAULT);
   const [dbEntryCode, setDbEntryCode] = useState(ENTRY_CODE_DEFAULT);
 
@@ -75,7 +73,6 @@ export default function App() {
       if (snapshot.exists() && String(snapshot.val()) === "true") {
         setIsVip(true); 
         
-        // チームが有効なら、最新のパスワード情報を取得しておく
         get(ref(db, `teamsData_${TEAM_ID}`)).then((snap) => {
           if (snap.exists()) {
             const data = snap.val();
@@ -89,18 +86,16 @@ export default function App() {
     });
   }, [TEAM_ID]);
 
-  // 合言葉を入力して入室する処理
   const handleLogin = (e) => {
     e.preventDefault();
     if (inputPass === dbEntryCode || inputPass === dbAdminCode || inputPass === "5963") {
-      localStorage.setItem(`auth_${TEAM_ID}`, "true"); // 端末に記憶させる
-      setIsAuth(true); // アプリ画面へ進む
+      localStorage.setItem(`auth_${TEAM_ID}`, "true");
+      setIsAuth(true);
     } else {
       alert("合言葉が違います！");
     }
   };
 
-  // URLが無効な場合のエラー画面
   if (!isVip) {
     return (
       <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f9fa', color: '#2c3e50', textAlign: 'center', padding: '20px', lineHeight: '1.6' }}>
@@ -112,7 +107,6 @@ export default function App() {
     );
   }
 
-  // 初回アクセス時のみ表示される合言葉入力画面
   if (!isAuth) {
     return (
       <div style={{ display: 'flex', height: '100vh', justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8f9fa', color: '#2c3e50', textAlign: 'center', padding: '20px' }}>
@@ -134,7 +128,6 @@ export default function App() {
     );
   }
 
-  // 認証済みならアプリ本体を表示
   return <ClubApp teamId={TEAM_ID} />;
 }
 
@@ -144,7 +137,6 @@ export default function App() {
 function ClubApp({ teamId }) {
   const DB_PATH = `teamsData_${teamId}/`; 
 
-  // 万が一formations.jsが読み込めなかった時の安全対策
   const keys = FORMATIONS ? Object.keys(FORMATIONS) : ["3-4-2-1"];
   
   const [membersList, setMembersList] = useState(INITIAL_MEMBERS);
@@ -163,7 +155,6 @@ function ClubApp({ teamId }) {
   const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem(`role_${teamId}`) === 'admin');
   const [isMaster, setIsMaster] = useState(() => localStorage.getItem(`role_${teamId}`) === 'master');
   
-  // パスワードのステート（管理用と入室用の2つ）
   const [adminCode, setAdminCode] = useState(ADMIN_CODE_DEFAULT);
   const [entryCode, setEntryCode] = useState(ENTRY_CODE_DEFAULT);
 
@@ -236,7 +227,7 @@ function ClubApp({ teamId }) {
     document.title = `${teamName} | 出欠・フォーメーション`;
   }, [teamName]);
 
-  // Firebase自動保存（entryCodeを追加）
+  // ★修正2：文字を完全に消した時に、Firebase上で確実に「削除（null）」されるように修正
   useEffect(() => {
     if (!isLoaded) return;
     const timerId = setTimeout(() => {
@@ -244,15 +235,14 @@ function ClubApp({ teamId }) {
       
       const payload = {
         teamName, defaultFormation, adminCode, entryCode, membersList,
-        themeMain, themeAccent1, themeAccent2, themeBg, themePageBg
+        themeMain, themeAccent1, themeAccent2, themeBg, themePageBg,
+        names: Object.keys(names).length > 0 ? names : null,
+        formationByDate: Object.keys(formationByDate).length > 0 ? formationByDate : null,
+        statusByDate: Object.keys(statusByDate).length > 0 ? statusByDate : null,
+        memosByDate: Object.keys(memosByDate).length > 0 ? memosByDate : null,
+        placedBySlotByDate: Object.keys(placedBySlotByDate).length > 0 ? placedBySlotByDate : null,
+        generalMemosByDate: Object.keys(generalMemosByDate).length > 0 ? generalMemosByDate : null,
       };
-
-      if (Object.keys(names).length > 0) payload.names = names;
-      if (Object.keys(formationByDate).length > 0) payload.formationByDate = formationByDate;
-      if (Object.keys(statusByDate).length > 0) payload.statusByDate = statusByDate;
-      if (Object.keys(memosByDate).length > 0) payload.memosByDate = memosByDate;
-      if (Object.keys(placedBySlotByDate).length > 0) payload.placedBySlotByDate = placedBySlotByDate;
-      if (Object.keys(generalMemosByDate).length > 0) payload.generalMemosByDate = generalMemosByDate;
 
       update(dbRef, payload).catch(err => console.error("保存エラー:", err));
     }, 1000);
@@ -483,10 +473,10 @@ function ClubApp({ teamId }) {
 
       {(isAdmin || isMaster) && (
         <div className="adminPanelMobile">
-          <div className="adminField"><label className="adminLabel">チーム名設定</label><input className="textInput" value={teamName} onChange={(e) => setTeamName(e.target.value)} /></div>
+          {/* ★修正1-1：入力途中のエコーを防ぐため「onBlur（入力を終えた時）」に状態を更新するよう修正 */}
+          <div className="adminField"><label className="adminLabel">チーム名設定</label><input className="textInput" defaultValue={teamName} onBlur={(e) => setTeamName(e.target.value)} /></div>
           <div className="adminField"><label className="adminLabel">チームロゴ変更</label><input type="file" accept="image/*" onChange={handleLogoChange} /></div>
           
-          {/* ★追加：パスワード管理エリア */}
           <div className="adminField">
             <label className="adminLabel" style={{ color: 'var(--theme-accent1)' }}>🔑 パスワード設定</label>
             <div style={{ background: 'rgba(0,0,0,0.05)', padding: '10px', borderRadius: '8px', marginTop: '5px' }}>
@@ -556,7 +546,8 @@ function ClubApp({ teamId }) {
               <div key={m.id} className="listRowCompact" style={{ flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: '4px' }}>
                   {(isAdmin || isMaster) && <button type="button" className="deleteBtn" onClick={() => handleDeleteMember(m.id)}>×</button>}
-                  <input className="listNameCompact" value={names[m.id] || ""} placeholder={m.label} onChange={(e) => setNames({ ...names, [m.id]: e.target.value })} style={{ flex: 1, textAlign: 'left', paddingLeft: '4px' }} />
+                  {/* ★修正1-2：メンバーの名前入力も「onBlur（入力を終えた時）」に更新するよう修正 */}
+                  <input className="listNameCompact" defaultValue={names[m.id] || ""} placeholder={m.label} onBlur={(e) => setNames(prev => ({ ...prev, [m.id]: e.target.value }))} style={{ flex: 1, textAlign: 'left', paddingLeft: '4px' }} />
                   <div className="listBtnsCompact">
                     {["ok", "maybe", "no"].map(type => (
                       <button key={type} className={`listBtnCompact ${type} ${status[m.id] === type ? "active" : ""}`} onClick={() => setStatusFor(m.id, type)} type="button">{type === "ok" ? "○" : type === "maybe" ? "△" : "×"}</button>
